@@ -2,34 +2,58 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/TheArcus02/chat-app-go/config"
+	"github.com/TheArcus02/chat-app-go/internal/handlers"
 	"github.com/TheArcus02/chat-app-go/internal/services"
+	"github.com/TheArcus02/chat-app-go/internal/utils"
 )
 
 func main() {
 	cfg := config.LoadConfig()
+	logger := utils.NewLogger()
+
 	address := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	listener, err := net.Listen("tcp", address)
+
 	if err != nil {
-		log.Fatalf("Failed to start server: %v\n", err)
+		logger.Fatalf("Failed to start server: %v", err)
 	}
+	
 	defer listener.Close()
 
-	fmt.Printf("Server running on %s\n", address)
+	logger.Infof("Server running on %s", address)
 
-	pool := services.NewConnectionPool()
+	connectionPool := services.NewConnectionPool(logger)
+	go connectionPool.Run()
+
+	go handleShutdown(listener, connectionPool, logger)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("Error accepting connection: %v\n", err)
+			logger.Errorf("Failed to accept connection: %v", err)
 			continue
 		}
-
-		go pool.HandleConnection(conn)
+		logger.Infof("New connection from %s", conn.RemoteAddr())
+		connectionHandler := handlers.NewConnectionHandler(logger, &conn, connectionPool)
+		go connectionHandler.Handle()
 	}
+}
+
+func handleShutdown(listener net.Listener, pool *services.ConnectionPool, logger *utils.Logger) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+	<-c
+	logger.Infof("Shutting down server...")
+
+	pool.Shutdown()  
+	listener.Close() 
+	os.Exit(0)
 }

@@ -1,59 +1,65 @@
 package services
 
 import (
-	"fmt"
-	"net"
 	"sync"
 
 	"github.com/TheArcus02/chat-app-go/internal/models"
+	"github.com/TheArcus02/chat-app-go/internal/utils"
 )
 
 type ConnectionPool struct {
-	mu    sync.Mutex
-	users map[string]*models.User
+	Users  map[string]*models.User
+	Mutex  sync.Mutex
+	Logger *utils.Logger
+	AddUser    chan *models.User
+	RemoveUser chan *models.User
 }
 
-func NewConnectionPool() *ConnectionPool {
+func NewConnectionPool(logger *utils.Logger) *ConnectionPool {
 	return &ConnectionPool{
-		users: make(map[string]*models.User),
+		Users:  make(map[string]*models.User),
+		Logger: logger,
+		AddUser:    make(chan *models.User),
+		RemoveUser: make(chan *models.User),
 	}
 }
 
-func (pool *ConnectionPool) HandleConnection(conn net.Conn) {
-	defer conn.Close()
-
-	var username string
-
-	buffer := make([]byte, 1024)
-	n, err := conn.Read(buffer)
-	if err != nil {
-		fmt.Printf("Error reading username: %v\n", err)
-		return
-	}
-
-	username = string(buffer[:n])
-	user := &models.User{Name: username, Conn: conn, Online: true}
-
-	pool.mu.Lock()
-	pool.users[username] = user
-	pool.mu.Unlock()
-
-	fmt.Printf("User connected: %s\n", username)
-
+func (cp *ConnectionPool) Run() {
 	for {
-		n, err := conn.Read(buffer)
-		if err != nil {
-			fmt.Printf("User %s disconnected.\n", username)
-			break
+		select {
+		case user := <-cp.AddUser:
+			cp.Mutex.Lock()
+			cp.Users[user.ID] = user
+			cp.Logger.Infof("User %s connected", user.Username)
+			cp.Mutex.Unlock()
+		case user := <-cp.RemoveUser:
+			cp.Mutex.Lock()
+			delete(cp.Users, user.ID)
+			cp.Logger.Infof("User %s disconnected", user.Username)
+			cp.Mutex.Unlock()
 		}
-
-		message := string(buffer[:n])
-		fmt.Printf("Message from %s: %s\n", username, message)
-
-		conn.Write([]byte("Echo: " + message))
 	}
+}
 
-	pool.mu.Lock()
-	delete(pool.users, username)
-	pool.mu.Unlock()
+func (cp *ConnectionPool) Broadcast(message string, senderID string) {
+	cp.Mutex.Lock()
+	defer cp.Mutex.Unlock()
+
+	for id, user := range cp.Users {
+		if id != senderID {
+			err := user.SendMessage(message)
+			if err != nil {
+				cp.Logger.Errorf("Failed to send message to %s: %v", user.Username, err)
+			}
+		}
+	}
+}
+
+func (cp *ConnectionPool) Shutdown() {
+	cp.Mutex.Lock()
+	defer cp.Mutex.Unlock()
+	for _, user := range cp.Users {
+		user.Conn.Close()
+	}
+	cp.Logger.Infof("All connections closed.")
 }
