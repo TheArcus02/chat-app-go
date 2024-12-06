@@ -69,7 +69,7 @@ func (handler *ConnectionHandler) handleMessage(message []byte) {
 			}
 			handler.Pool.AddUser <- user
 
-			if err := handler.sendConnectResponse(user, msg.SenderID); err != nil {
+			if err := handler.sendConnectResponse(user); err != nil {
 				handler.Logger.Errorf("Error sending connect response: %v", err)
 				return
 			}
@@ -98,14 +98,14 @@ func (handler *ConnectionHandler) handleMessage(message []byte) {
 	handler.Pool.Logger.Infof(fmt.Sprintf("Message handled: %s", string(message)))
 }
 
-func (handler *ConnectionHandler) sendConnectResponse(user *models.User, username string) error {
+func (handler *ConnectionHandler) sendConnectResponse(user *models.User) error {
 	connectResponse := protocol.Message{
 		Type:   "connect_response",
 		SenderID: "server",
 		Content: string(func() []byte {
 			content, err := json.Marshal(map[string]interface{}{
 				"userID":   user.ID,
-				"username": username,
+				"username": user.Username,
 				"userList": handler.Pool.GetUsersList(),
 			})
 			if err != nil {
@@ -123,11 +123,11 @@ func (handler *ConnectionHandler) sendConnectResponse(user *models.User, usernam
 
 	err = user.SendMessage(string(responseJSON))
 	if err != nil {
-		handler.Logger.Errorf("Failed to send connect response to user %s: %v", username, err)
+		handler.Logger.Errorf("Failed to send connect response to user %s: %v", user.Username, err)
 		return err
 	}
 
-	handler.Logger.Infof("Connect response sent to user %s (ID: %s)", username, user.ID)
+	handler.Logger.Infof("Connect response sent to user %s (ID: %s)", user.Username, user.ID)
 	return nil
 }
 
