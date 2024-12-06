@@ -7,7 +7,8 @@ import (
 
 type Message struct {
 	Type    string `json:"type"`    
-	Sender  string `json:"sender"`  
+	SenderID  string `json:"senderID"`
+	RecieverID string `json:"recieverID"`  
 	Content string `json:"content"`
 }
 

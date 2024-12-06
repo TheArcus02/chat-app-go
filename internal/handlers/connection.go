@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 
@@ -16,17 +17,21 @@ type ConnectionHandler struct {
 	Logger     *utils.Logger
 	Connection *net.Conn
 	Pool       *services.ConnectionPool
+	ChatHandler *ChatHandler
 }
 
-func NewConnectionHandler(logger *utils.Logger, connection *net.Conn, pool *services.ConnectionPool) *ConnectionHandler {
+func NewConnectionHandler(logger *utils.Logger, connection *net.Conn, pool *services.ConnectionPool, chatHandler *ChatHandler) *ConnectionHandler {
 	return &ConnectionHandler{
 		Logger:     logger,
 		Connection: connection,
 		Pool:       pool,
+		ChatHandler: chatHandler,
 	}
 }
 
 func (handler *ConnectionHandler) Handle() {
+	defer (*handler.Connection).Close()
+
 	buffer := make([]byte, 1024)
 	for {
 		n, err := (*handler.Connection).Read(buffer)
@@ -44,8 +49,6 @@ func (handler *ConnectionHandler) Handle() {
 
 func (handler *ConnectionHandler) handleMessage(message []byte) {
 	handler.Logger.Infof(fmt.Sprintf("Received message: %s", string(message)))
-
-	// Deserialize the message
 	msg, err := protocol.DeserializeMessage(message)
 	if err != nil {
 		handler.Logger.Errorf(fmt.Sprintf("Failed to deserialize message: %v", err))
@@ -53,33 +56,108 @@ func (handler *ConnectionHandler) handleMessage(message []byte) {
 	}
 
 	switch msg.Type {
-		case protocol.MessageTypeText:
-			handler.Pool.Broadcast(msg.Content, msg.Sender)
+		case protocol.MessageTypeChat:
+			handler.forwardToChatHandler(*msg)
 		
 		case protocol.MessageTypeConnect:
 			userID := uuid.New().String()
 
 			user := &models.User{
 				ID:	   		userID,
-				Username:	msg.Sender,
+				Username:	msg.Content,
 				Conn:     	*handler.Connection,
 			}
 			handler.Pool.AddUser <- user
 
-			handler.Logger.Infof("User %s (ID: %s) connected", msg.Sender, userID)
-	
+			if err := handler.sendConnectResponse(user, msg.SenderID); err != nil {
+				handler.Logger.Errorf("Error sending connect response: %v", err)
+				return
+			}
+		
+			if err := handler.broadcastUserListUpdate(userID); err != nil {
+				handler.Logger.Errorf("Error broadcasting user list update: %v", err)
+			}
+
 		case protocol.MessageTypeDisconnect:
 			user := &models.User{
-				ID:	   		msg.Sender,
-				Username:	msg.Sender,
+				ID:	   		msg.SenderID,
+				Username:	msg.Content,
 				Conn:     	*handler.Connection,
 			}
 			handler.Pool.RemoveUser <- user
+			handler.Logger.Infof("User %s disconnected", msg.SenderID)
 
-			handler.Logger.Infof("User %s disconnected", msg.Sender)
+			if err := handler.broadcastUserListUpdate(user.ID); err != nil {
+				handler.Logger.Errorf("Error broadcasting user list update: %v", err)
+			}
+
 		default:
 			handler.Logger.Errorf(fmt.Sprintf("Unknown message type: %s", msg.Type))
 	}
 
 	handler.Pool.Logger.Infof(fmt.Sprintf("Message handled: %s", string(message)))
+}
+
+func (handler *ConnectionHandler) sendConnectResponse(user *models.User, username string) error {
+	connectResponse := protocol.Message{
+		Type:   "connect_response",
+		SenderID: "server",
+		Content: string(func() []byte {
+			content, err := json.Marshal(map[string]interface{}{
+				"userID":   user.ID,
+				"username": username,
+				"userList": handler.Pool.GetUsersList(),
+			})
+			if err != nil {
+				handler.Logger.Errorf("Failed to marshal connect response content: %v", err)
+			}
+			return content
+		}()),
+	}
+
+	responseJSON, err := json.Marshal(connectResponse)
+	if err != nil {
+		handler.Logger.Errorf("Failed to marshal connect response: %v", err)
+		return err
+	}
+
+	err = user.SendMessage(string(responseJSON))
+	if err != nil {
+		handler.Logger.Errorf("Failed to send connect response to user %s: %v", username, err)
+		return err
+	}
+
+	handler.Logger.Infof("Connect response sent to user %s (ID: %s)", username, user.ID)
+	return nil
+}
+
+
+func (handler *ConnectionHandler) broadcastUserListUpdate(excludeUserID string) error {
+	broadcastMessage := protocol.Message{
+		Type:   "user_list_update",
+		SenderID: "server",
+		Content: string(func() []byte {
+			content, err := json.Marshal(map[string]interface{}{
+				"userList": handler.Pool.GetUsersList(),
+			})
+			if err != nil {
+				handler.Logger.Errorf("Failed to marshal user list update content: %v", err)
+			}
+			return content
+		}()),
+	}
+
+	broadcastJSON, err := json.Marshal(broadcastMessage)
+	if err != nil {
+		handler.Logger.Errorf("Failed to marshal broadcast message: %v", err)
+		return err
+	}
+
+	handler.Pool.Broadcast(string(broadcastJSON), excludeUserID)
+	handler.Logger.Infof("Broadcasted updated user list excluding user ID: %s", excludeUserID)
+	return nil
+}
+
+func (handler *ConnectionHandler) forwardToChatHandler(msg protocol.Message) {
+	go handler.ChatHandler.HandleChatMessage(msg)
 }

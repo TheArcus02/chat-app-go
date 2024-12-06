@@ -34,6 +34,8 @@ func main() {
 
 	go handleShutdown(listener, connectionPool, logger)
 
+	chatHandler := handlers.NewChatHandler(logger, connectionPool)
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -41,7 +43,7 @@ func main() {
 			continue
 		}
 		logger.Infof("New connection from %s", conn.RemoteAddr())
-		connectionHandler := handlers.NewConnectionHandler(logger, &conn, connectionPool)
+		connectionHandler := handlers.NewConnectionHandler(logger, &conn, connectionPool, chatHandler)
 		go connectionHandler.Handle()
 	}
 }

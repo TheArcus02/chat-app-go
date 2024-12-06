@@ -1,7 +1,7 @@
 package protocol
 
 const (
-	MessageTypeText       = "text"
+	MessageTypeChat       = "chat"
 	MessageTypeConnect    = "connect"
 	MessageTypeDisconnect = "disconnect"
 )

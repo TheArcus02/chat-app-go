@@ -41,6 +41,27 @@ func (cp *ConnectionPool) Run() {
 	}
 }
 
+func (cp *ConnectionPool) SendToUser(userID string, message string) error {
+	cp.Mutex.Lock()
+	defer cp.Mutex.Unlock()
+
+	user, exists := cp.Users[userID]
+	if !exists {
+		cp.Logger.Errorf("user with ID %s not found", userID)
+		return nil
+	}
+
+	err := user.SendMessage(message)
+	if err != nil {
+		cp.Logger.Errorf("Failed to send message to %s: %v", user.Username, err)
+		return err
+	}
+
+	cp.Logger.Infof("Message sent to user %s: %s", user.Username, message)
+	return nil
+}
+
+
 func (cp *ConnectionPool) Broadcast(message string, senderID string) {
 	cp.Mutex.Lock()
 	defer cp.Mutex.Unlock()
@@ -62,4 +83,17 @@ func (cp *ConnectionPool) Shutdown() {
 		user.Conn.Close()
 	}
 	cp.Logger.Infof("All connections closed.")
+}
+
+func (p *ConnectionPool) GetUsersList() []map[string]string {
+	userList := []map[string]string{}
+
+	for _, user := range p.Users {
+		userList = append(userList, map[string]string{
+			"userID":   user.ID,
+			"username": user.Username,
+		})
+	}
+
+	return userList
 }

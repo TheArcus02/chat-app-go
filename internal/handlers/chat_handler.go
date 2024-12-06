@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"fmt"
+	"encoding/json"
 
-	"github.com/TheArcus02/chat-app-go/internal/models"
 	"github.com/TheArcus02/chat-app-go/internal/services"
 	"github.com/TheArcus02/chat-app-go/internal/utils"
+	"github.com/TheArcus02/chat-app-go/pkg/protocol"
 )
 
 type ChatHandler struct {
@@ -20,18 +20,25 @@ func NewChatHandler(logger *utils.Logger, pool *services.ConnectionPool) *ChatHa
 	}
 }
 
-func (handler *ChatHandler) SendMessage(sender *models.User, recipientID string, message string) error {
-	recipient := handler.Pool.Users[recipientID]
-	if recipient == nil {
-		return fmt.Errorf("recipient not found")
+func (ch *ChatHandler) HandleChatMessage(msg protocol.Message) {
+	ch.Logger.Infof("Received chat message from %s to %s: %s", msg.SenderID, msg.RecieverID, msg.Content)
+
+	chatResponse := protocol.Message{
+		Type:    protocol.MessageTypeChat,
+		SenderID:  msg.SenderID,
+		RecieverID: msg.RecieverID,
+		Content: msg.Content,
 	}
 
-	// Here, we're assuming that the recipient is connected and ready to receive messages
-	// You could implement more sophisticated message routing here
+	responseBytes, err := json.Marshal(chatResponse)
+	if err != nil {
+		ch.Logger.Errorf("Failed to serialize chat message: %v", err)
+		return
+	}
 
-	handler.Logger.Infof(fmt.Sprintf("Sending message from %s to %s: %s", sender.Username, recipient.Username, message))
-
-	// In a real scenario, you'd push this message to the recipient's socket connection
-	// For now, let's simulate that the message was "sent"
-	return nil
+	err = ch.Pool.SendToUser(msg.RecieverID, string(responseBytes))
+	if err != nil {
+		ch.Logger.Errorf("Failed to send message to %s: %v", msg.RecieverID, err)
+		return
+	}
 }
