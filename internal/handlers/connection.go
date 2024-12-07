@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/TheArcus02/chat-app-go/internal/models"
@@ -36,7 +37,11 @@ func (handler *ConnectionHandler) Handle() {
 	for {
 		n, err := (*handler.Connection).Read(buffer)
 		if err != nil {
-			handler.Logger.Errorf(fmt.Sprintf("Error reading from connection: %v", err))
+			if err == io.EOF{
+				handler.Logger.Infof("Connection closed by client: %s", (*handler.Connection).RemoteAddr())
+			} else {
+				handler.Logger.Errorf("Error reading from connection %s: %v", (*handler.Connection).RemoteAddr(), err)
+			}
 			break
 		}
 		if n == 0 {
