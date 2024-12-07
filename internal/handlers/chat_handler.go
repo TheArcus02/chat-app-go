@@ -21,12 +21,12 @@ func NewChatHandler(logger *utils.Logger, pool *services.ConnectionPool) *ChatHa
 }
 
 func (ch *ChatHandler) HandleChatMessage(msg protocol.Message) {
-	ch.Logger.Infof("Received chat message from %s to %s: %s", msg.SenderID, msg.RecieverID, msg.Content)
+	ch.Logger.Infof("Received chat message from %s to %s: %s", msg.SenderID, msg.RecipientID, msg.Content)
 
 	chatResponse := protocol.Message{
 		Type:    protocol.MessageTypeChat,
 		SenderID:  msg.SenderID,
-		RecieverID: msg.RecieverID,
+		RecipientID: msg.RecipientID,
 		Content: msg.Content,
 	}
 
@@ -36,9 +36,9 @@ func (ch *ChatHandler) HandleChatMessage(msg protocol.Message) {
 		return
 	}
 
-	err = ch.Pool.SendToUser(msg.RecieverID, string(responseBytes))
+	err = ch.Pool.SendToUser(msg.RecipientID, string(responseBytes))
 	if err != nil {
-		ch.Logger.Errorf("Failed to send message to %s: %v", msg.RecieverID, err)
+		ch.Logger.Errorf("Failed to send message to %s: %v", msg.RecipientID, err)
 		return
 	}
 }
