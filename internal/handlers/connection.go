@@ -90,7 +90,14 @@ func (handler *ConnectionHandler) handleMessage(message []byte) {
 				Conn:     	*handler.Connection,
 			}
 			handler.Pool.RemoveUser <- user
+			
 			handler.Logger.Infof("User %s disconnected", msg.SenderID)
+
+			if err := handler.sendDisconnectResponse(user); err != nil {
+				handler.Logger.Errorf("Error sending disconnect response: %v", err)
+				return
+			}
+
 
 			if err := handler.broadcastUserListUpdate(user.ID); err != nil {
 				handler.Logger.Errorf("Error broadcasting user list update: %v", err)
@@ -133,6 +140,38 @@ func (handler *ConnectionHandler) sendConnectResponse(user *models.User) error {
 	}
 
 	handler.Logger.Infof("Connect response sent to user %s (ID: %s)", user.Username, user.ID)
+	return nil
+}
+
+func (handler *ConnectionHandler) sendDisconnectResponse(user *models.User) error {
+	disconnectResponse := protocol.Message{
+		Type:   "disconnect_response",
+		SenderID: "server",
+		Content: string(func() []byte {
+			content, err := json.Marshal(map[string]interface{}{
+				"userID":   user.ID,
+				"username": user.Username,
+			})
+			if err != nil {
+				handler.Logger.Errorf("Failed to marshal disconnect response content: %v", err)
+			}
+			return content
+		}()),
+	}
+
+	responseJSON, err := json.Marshal(disconnectResponse)
+	if err != nil {
+		handler.Logger.Errorf("Failed to marshal disconnect response: %v", err)
+		return err
+	}
+
+	err = user.SendMessage(string(responseJSON))
+	if err != nil {
+		handler.Logger.Errorf("Failed to send disconnect response to user %s: %v", user.Username, err)
+		return err
+	}
+
+	handler.Logger.Infof("Disconnect response sent to user %s (ID: %s)", user.Username, user.ID)
 	return nil
 }
 
