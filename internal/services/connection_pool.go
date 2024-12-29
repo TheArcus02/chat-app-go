@@ -86,6 +86,9 @@ func (cp *ConnectionPool) Shutdown() {
 }
 
 func (p *ConnectionPool) GetUsersList() []map[string]string {
+	p.Mutex.Lock()
+	defer p.Mutex.Unlock()
+	
 	userList := []map[string]string{}
 
 	for _, user := range p.Users {

@@ -177,30 +177,31 @@ func (handler *ConnectionHandler) sendDisconnectResponse(user *models.User) erro
 
 
 func (handler *ConnectionHandler) broadcastUserListUpdate(excludeUserID string) error {
-	broadcastMessage := protocol.Message{
-		Type:   "user_list_update",
-		SenderID: "server",
-		Content: string(func() []byte {
-			content, err := json.Marshal(map[string]interface{}{
-				"userList": handler.Pool.GetUsersList(),
-			})
-			if err != nil {
-				handler.Logger.Errorf("Failed to marshal user list update content: %v", err)
-			}
-			return content
-		}()),
-	}
+    userList, err := json.Marshal(map[string]interface{}{
+        "userList": handler.Pool.GetUsersList(),
+    })
+    if err != nil {
+        handler.Logger.Errorf("Failed to marshal user list update content: %v", err)
+        return err
+    }
 
-	broadcastJSON, err := json.Marshal(broadcastMessage)
-	if err != nil {
-		handler.Logger.Errorf("Failed to marshal broadcast message: %v", err)
-		return err
-	}
+    broadcastMessage := protocol.Message{
+        Type:    "user_list_update",
+        SenderID: "server",
+        Content: string(userList),
+    }
 
-	handler.Pool.Broadcast(string(broadcastJSON), excludeUserID)
-	handler.Logger.Infof("Broadcasted updated user list excluding user ID: %s", excludeUserID)
-	return nil
+    broadcastJSON, err := json.Marshal(broadcastMessage)
+    if err != nil {
+        handler.Logger.Errorf("Failed to marshal broadcast message: %v", err)
+        return err
+    }
+
+    handler.Pool.Broadcast(string(broadcastJSON), excludeUserID)
+    handler.Logger.Infof("Broadcasted updated user list excluding user ID: %s", excludeUserID)
+    return nil
 }
+
 
 func (handler *ConnectionHandler) forwardToChatHandler(msg protocol.Message) {
 	go handler.ChatHandler.HandleChatMessage(msg)
